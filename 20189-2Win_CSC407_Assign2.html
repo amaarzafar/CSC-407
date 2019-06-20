@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+
+ <head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <title>CSC 407: Computer Systems II: 2019 Winter, Assignment #2</title>
+  <style>
+    H2 { text-align: center }
+  </style>
+ </head>
+
+ <body>
+  <h2>CSC 407: Computer Systems II: 2019 Winter, Assignment #2</h2>
+  <p>Last Modified 2019 February 4</p>
+
+  <h4>Purpose:</h4>
+   To practice creating processes and signal handling.
+
+  <h4>Computing</h4>
+  <p>
+  Please <a href="www.chiark.greenend.org.uk/~sgtatham/putty/download.html">ssh</a> into cdmlinux.cstcis.cti.depaul.edu, or use your own Linux machine.
+  </p>
+
+  <h4>Overview:</h4>
+  <p>
+    A mother kangaroo has lost some number of her baby kangroos (<em>&quot;joeys&quot;</em>) in a shopping mall.
+    To be easy to find she will stay outside.
+    Each joey was lost in its own unique location, and thus must make its own way out of the mall.
+  </p>
+
+  <p>
+    To find its way out of the mall, a joey must hop along the corridor it is in and then choose the proper direction when the corridor ends (either left or right) by sending either <code>LEFT_TURN_SIGNAL</code> (<code>SIGUSR1</code>) or <code>RIGHT_TURN_SIGNAL</code> (<code>SIGUSR2</code>) to the mall.
+    If it chooses incorrectly then the mall will instantly tell it whether or not it has made the correct turn.
+    <ul>
+      <li>If it has, then it hops along the next corridor until it has to make another decision</li>
+      <li>If it has not, then it chooses the other direction.
+    </ul>
+  </p>
+
+  In this assignment we'll make 3 programs:
+  <ol type="1">
+    <li>
+      A <em>mamaKangaroo</em> program which will:
+      <ol type="a">
+	<li>Ask for the number of joeys to make</li>
+	<li>Ask for a random number seed</li>
+	<li>Install a <code>SIGCHLD</code> handler</li>
+	<li>Start a mall process</li>
+	<li>Start the joey process(es)</li>
+	<li>Wait for all joeys to find their way back to her pouch</li>
+	<li>Send <code>SIGINT</code> to the mall process, <code>printf()</code> a parting message, <code>free()</code> its memory, and then quit.
+      </ol>
+    </li>
+    <p/>
+
+    <li>
+      A <em>joey</em> program that guesses at its initial direction (which it keeps in <code>nextTurn</code>).
+      Thereafter,
+      <ol type="a">
+	<li>
+	  When it receives <code>CORRECT_TURN_SIGNAL</code> it <code>printf()</code>s a happy message, hops down the next hall, chooses a next direction (either <code>LEFT_TURN_SIGNAL</code> or <code>RIGHT_TURN_SIGNAL</code>), and sends that to the mall process.
+	</li>
+	<li>
+	  When it receives <code>WRONG_TURN_SIGNAL</code> it <code>printf()</code>s a chastised message, chooses the <em>other</em> direction (opposite of what is currently in <code>nextTurn</code>), and sends that to the mall process.
+	</li>
+	<li>
+	  When it receives <code>SIGINT</code> it <code>printf()</code>s a celebratory message, and goes on to stop the program.
+	</li>
+      </ol>
+    </li>
+    <p/>
+
+    <li>
+      A <em>mall</em> program that waits until it receives either <code>LEFT_TURN_SIGNAL</code> (<code>SIGUSR1</code>) or <code>RIGHT_TURN_SIGNAL</code> (<code>SIGUSR2</code>) from a joey process.
+      It will then compare that move with the move the joey should have taken.
+      <ul>
+	<li>If the joey took the wrong move then it:
+	  <ol type="a">
+	    <li><code>printf()</code>s a message that tells this.</li>
+	    <li>sends <code>WRONG_TURN_SIGNAL</code> back to the joey process.</li>
+	  </ol>
+	</li>
+
+	<li>If the joey took the right move then it:
+	  <ol type="a">
+	    <li><code>printf()</code>s a message that tells this.</li>
+	    <li>increments <code>joeysNumSuccessfulTurns[joey]</code></li>
+	    <li>
+	      If <code>joeysNumSuccessfulTurns[joey]</code> is greater than or equal to <code>NUM_TURNS_MUST_SUCCESSFULLY_MAKE</code> then it has made it out of the mall.
+	      It <code>printf()</code>s a message that tells this and sends <code>SIGINT</code> to the joey process.
+	    </li>
+	    <li>
+	      However, if <code>joeysNumSuccessfulTurns[joey]</code> is less than <code>NUM_TURNS_MUST_SUCCESSFULLY_MAKE</code> then it still has at least one more turn to make.
+	      It <code>printf()</code>s a message telling how many more moves the joey should make and sends <code>CORRECT_TURN_SIGNAL</code> back to the joey process.
+	    </li>
+	  </ol>
+	  <p/>
+
+	  When all of the joeys have made it out of the mall then the mama kangagroo process will send this mall process <code>SIGINT</code>.
+	  This mall process will then <code>printf()</code> a parting message, <code>free()</code> its memory, and then quit.
+      </ul>
+	
+    </li>
+    <p/>
+
+    <li>
+      (5 Points extra credit)
+      <p>
+	These programs will work correctly for one 1 joey process.
+	They will work correctly most of the time for 2 joey processes.
+	Sometimes they will work correctly, and sometimes they will not, for 3 joey processes.
+	For 4 joey processes or more the joey processes will finish while others will be awaiting feedback from the mall process.
+	Meanwhile, the mall process will be awaiting choices from some of the joey processes.
+      <p>
+
+      </p>
+	<em>Why?</em>
+      </p>
+    </li>
+
+  </ol>
+  <p/>
+
+  <h4>Sample Output (1):</h4>
+  <p>
+<pre>
+$ <strong>./mamaKangaroo 1 1</strong>
+Joey # 0: Which direction?  Decisions, Decisions!  I'll guess left.
+Mall: Joey # 0 made the wrong turn!  (left)
+Joey # 0: Oops!  Let us try the other direction: right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 7 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 6 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 0 made the wrong turn!  (left)
+Joey # 0: Oops!  Let us try the other direction: right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 5 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 0 turned correctly!  (left)
+Mall: Joey # 0 must make 4 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 0 turned correctly!  (left)
+Mall: Joey # 0 must make 3 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 0 made the wrong turn!  (left)
+Joey # 0: Oops!  Let us try the other direction: right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 2 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 1 more correct turn.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 0 made the wrong turn!  (right)
+Joey # 0: Oops!  Let us try the other direction: left.
+Mall: Joey # 0 turned correctly!  (left)
+Mall: Joey # 0 got out of the mall and returned to its mama!
+Joey # 0: Yay!  I'm safely in mommy's pouch!
+Mama: Joey #0 just entered my pouch!
+Mall: All the joeys have found their mama!  Now the mall can finally close!
+</pre>
+  </p>
+
+  <h4>Protocol Analysis Of Sample Output (1):</h4>
+  <p>
+<pre>
+  mama			mall			joey
+   |
+   | fork()/exec()
+   +--------------------&gt;&gt;|
+   |			  |
+   |			  |
+   | fork()/exec()	  |
+   +----------------------|---------------------&gt;&gt;|
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Which direction?  Decisions, Decisions!  I'll guess left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | WRONG_TURN_SIGNAL	  | Mall: Joey # 0 made the wrong turn!  (left)
+   |			  +---------------------&gt;&gt;|
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Oops!  Let us try the other direction: right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (right) 
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 7 more correct turns.
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Yay!  On to the next turn; I'll guess right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (right)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 6 more correct turns.
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Yay!  On to the next turn; I'll guess left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | WRONG_TURN_SIGNAL	  | Mall: Joey # 0 made the wrong turn!  (left)
+   |			  +---------------------&gt;&gt;|
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Oops!  Let us try the other direction: right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (right)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 5 more correct turns.
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Yay!  On to the next turn; I'll guess left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (left)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 4 more correct turns.
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Yay!  On to the next turn; I'll guess left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (left)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 3 more correct turns.
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Yay!  On to the next turn; I'll guess left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | WRONG_TURN_SIGNAL	  | Mall: Joey # 0 made the wrong turn!  (left)
+   |			  +---------------------&gt;&gt;|
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Oops!  Let us try the other direction: right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (right)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 2 more correct turns.
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Yay!  On to the next turn; I'll guess right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | CORRECT_TURN_SIGNAL	  | Mall: Joey # 0 turned correctly!  (right)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 must make 1 more correct turn.
+   |			  |			  |
+   |			  |	 RIGHT_TURN_SIGNAL| Joey # 0: Yay!  On to the next turn; I'll guess right.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | WRONG_TURN_SIGNAL	  | Mall: Joey # 0 made the wrong turn!  (right)
+   |			  +---------------------&gt;&gt;|
+   |			  |			  |
+   |			  |	 LEFT_TURN_SIGNAL | Joey # 0: Oops!  Let us try the other direction: left.
+   |			  |&lt;&lt;---------------------+
+   |			  |			  |
+   |			  | SIGINT		  | Mall: Joey # 0 turned correctly!  (left)
+   |			  +---------------------&gt;&gt;| Mall: Joey # 0 got out of the mall and returned to its mama!
+   |			  |			  |
+   |			  |		SIGCHLD	  |
+   |&lt;&lt;--------------------|-----------------------* Joey # 0: Yay!  I'm safely in mommy's pouch!
+   |			  |			    (joey process ends)
+   |			  |
+   |			  |
+   | SIGINT		  |			    Mama: Joey #0 just entered my pouch!
+   +--------------------&gt;&gt;|
+   |			  |
+   |			  *			    Mall: All the joeys have found their mama!  Now the mall can finally close!
+   |			  			    (mall process ends)
+   |
+   |
+   *						    (mamaKangaroo process ends)
+</pre>
+  </p>
+
+  <h4>Sample Output (2):</h4>
+  <p>
+<pre>
+$ <strong>./mamaKangaroo 2 1</strong>
+Joey # 1: Which direction?  Decisions, Decisions!  I'll guess right.
+Joey # 0: Which direction?  Decisions, Decisions!  I'll guess left.
+Mall: Joey # 0 made the wrong turn!  (right)
+Mall: Joey # 1 made the wrong turn!  (left)
+Joey # 1: Oops!  Let us try the other direction: left.
+Joey # 0: Oops!  Let us try the other direction: right.
+Mall: Joey # 0 turned correctly!  (left)
+Mall: Joey # 0 must make 7 more correct turns.
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 7 more correct turns.
+Joey # 1: Yay!  On to the next turn; I'll guess left.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 0 made the wrong turn!  (left)
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 6 more correct turns.
+Joey # 1: Oops!  Let us try the other direction: right.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 1 made the wrong turn!  (left)
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 6 more correct turns.
+Joey # 0: Oops!  Let us try the other direction: right.
+Joey # 1: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 0 made the wrong turn!  (right)
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 5 more correct turns.
+Joey # 1: Oops!  Let us try the other direction: left.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 1 made the wrong turn!  (left)
+Mall: Joey # 0 turned correctly!  (left)
+Mall: Joey # 0 must make 5 more correct turns.
+Joey # 0: Oops!  Let us try the other direction: right.
+Joey # 1: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 0 made the wrong turn!  (left)
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 4 more correct turns.
+Joey # 1: Oops!  Let us try the other direction: right.
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 1 made the wrong turn!  (left)
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 4 more correct turns.
+Joey # 0: Oops!  Let us try the other direction: right.
+Joey # 1: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 3 more correct turns.
+Mall: Joey # 0 made the wrong turn!  (left)
+Joey # 0: Yay!  On to the next turn; I'll guess left.
+Joey # 1: Oops!  Let us try the other direction: right.
+Mall: Joey # 1 made the wrong turn!  (left)
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 3 more correct turns.
+Joey # 0: Oops!  Let us try the other direction: right.
+Joey # 1: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 2 more correct turns.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 2 more correct turns.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Joey # 1: Yay!  On to the next turn; I'll guess right.
+Mall: Joey # 1 turned correctly!  (right)
+Mall: Joey # 1 must make 1 more correct turn.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 must make 1 more correct turn.
+Joey # 0: Yay!  On to the next turn; I'll guess right.
+Joey # 1: Yay!  On to the next turn; I'll guess left.
+Mall: Joey # 1 made the wrong turn!  (right)
+Joey # 0: Oops!  Let us try the other direction: left.
+Mall: Joey # 0 made the wrong turn!  (left)
+Mall: Joey # 1 turned correctly!  (left)
+Mall: Joey # 1 got out of the mall and returned to its mama!
+Joey # 0: Yay!  I'm safely in mommy's pouch!
+Joey # 1: Oops!  Let us try the other direction: right.
+Mall: Joey # 0 turned correctly!  (right)
+Mall: Joey # 0 got out of the mall and returned to its mama!
+Joey # 1: Yay!  I'm safely in mommy's pouch!
+Mama: Joey #0 just entered my pouch!
+Mama: Joey #1 just entered my pouch!
+Mall: All the joeys have found their mama!  Now the mall can finally close!
+</pre>
+  </p>
+
+  <h4>kangarooHeaders.h</h4>
+  <p>
+<pre>
+/*--------------------------------------------------------------------------*
+ *----									----*
+ *----		kangarooHeaders.h					----*
+ *----									----*
+ *----	    This file declares constants and objects common to the	----*
+ *----	Unix-signalling kangaroo simulation programs.			----*
+ *----									----*
+ *----	----	----	----	----	----	----	----	----	----*
+ *----									----*
+ *----	Version 1.0		2017 April 17		Joseph Phillips	----*
+ *----									----*
+ *--------------------------------------------------------------------------*/
+
+//
+//		Common include sequence:
+//
+#include	&lt;stdlib.h&gt;
+#include	&lt;stdio.h&gt;
+#include	&lt;sys/types.h&gt;
+#include	&lt;signal.h&gt;
+#include	&lt;string.h&gt;
+#include	&lt;unistd.h&gt;
+#include	&lt;wait.h&gt;
+
+
+//
+//		Declaration of constants:
+//
+#define		LINE_LEN		16
+#define		MALL_PROG_NAME		&quot;mall&quot;
+#define		JOEY_PROG_NAME		&quot;joey&quot;
+
+#define		MAMAS_NUM_JOEYS_CMD_LINE_INDEX	((int)1)
+#define		MAMAS_RAND_SEED_CMD_LINE_INDEX	((int)2)
+
+#define		MALLS_NUM_JOEYS_CMD_LINE_INDEX	((int)1)
+#define		MALLS_RAND_SEED_CMD_LINE_INDEX	((int)2)
+#define		MIN_MALL_CMD_LINE_PARAMS	\
+					(MALLS_RAND_SEED_CMD_LINE_INDEX + 1)
+
+#define		JOEYS_INDEX_CMD_LINE_INDEX	((int)1)
+#define		JOEYS_MALL_PID_CMD_LINE_INDEX	((int)2)
+#define		JOEYS_RAND_SEED_CMD_LINE_INDEX	((int)3)
+#define		MIN_JOEY_CMD_LINE_PARAMS	\
+					(JOEYS_RAND_SEED_CMD_LINE_INDEX + 1)
+
+#define		MIN_NUM_LEGAL_JOEYS		((int)1)
+
+#define		NUM_TURNS_MUST_SUCCESSFULLY_MAKE ((int)8)
+
+#define		LEFT_TURN_SIGNAL		SIGUSR1
+#define		RIGHT_TURN_SIGNAL		SIGUSR2
+
+#define		WRONG_TURN_SIGNAL		SIGUSR1
+#define		CORRECT_TURN_SIGNAL		SIGUSR2
+</pre>
+  </p>
+
+  <h4>mall.c</h4>
+  <p>
+<pre>
+/*--------------------------------------------------------------------------*
+ *----									----*
+ *----		mall.c							----*
+ *----									----*
+ *----	    This program implements the mall process, which gives the 	----*
+ *----	joeys processes feedback on how to leave.			----*
+ *----									----*
+ *----	----	----	----	----	----	----	----	----	----*
+ *----									----*
+ *----	Version 1.0		2017 April 17		Joseph Phillips	----*
+ *----									----*
+ *--------------------------------------------------------------------------*/
+
+//
+//		Header inclusion:
+//
+#include	&quot;kangarooHeaders.h&quot;
+
+
+//
+//		Definition of global vars:
+//
+
+//  PURPOSE:  To hold the number of joeys the user requested to make.
+int		numJoeys		= MIN_NUM_LEGAL_JOEYS - 1;
+
+//  PURPOSE:  To tell if the mama is still looking for joeys.
+int		shouldStillRun		= 1;
+
+//  PURPOSE:  To encode the unique sequence of left and right turns each joey
+//	make to leave the mall.
+//	0 bit = left
+//	1 bit = right
+//	Bits read from least to most significant.
+int*		joeysPaths		= NULL;
+
+//  PURPOSE:  To keep track of the number of successful turns each joey has
+//	already made.
+int*		joeysNumSuccessfulTurns	= NULL;
+
+//  PURPOSE:  To hold the process ids of the joey processes.
+pid_t*		joeysPids		= NULL;
+
+
+//
+//		Definition of global fncs:
+//
+
+//  PURPOSE:  To initialize most global structures given the 'argc' command
+//	line parameters given in 'argv[]'.  No return value.
+void		initializeMostGlobals	(int		argc,
+					 char*		argv[]
+					)
+{
+  //  I.  Application validity check:
+  if  (argc &lt; MIN_MALL_CMD_LINE_PARAMS)
+  {
+    fprintf(stderr,&quot;Usage: %s &lt;numJoeys&gt; &lt;randSeed&gt;\n&quot;,MALL_PROG_NAME);
+    exit(EXIT_FAILURE);
+  }
+
+  //  II.  Initialize globals:
+  //  II.A.  Initialize 'numJoeys':
+  numJoeys	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[MALLS_NUM_JOEYS_CMD_LINE_INDEX]'</strong>
+
+  if  (numJoeys &lt; MIN_NUM_LEGAL_JOEYS)
+  {
+    fprintf(stderr,&quot;Illegal number of joeys.\n&quot;);
+    exit(EXIT_FAILURE);
+  }
+
+  //  II.B.  Initialize random number seed:
+  int	randNumSeed	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[MALLS_RAND_SEED_CMD_LINE_INDEX]'</strong>
+
+  srand(randNumSeed);
+
+  //  II.C.  Initialize 'joeysPaths' and 'joeysNumSuccessfulTurns':
+  joeysNumSuccessfulTurns	= (int*)calloc(sizeof(int),numJoeys);
+  joeysPaths			= (int*)calloc(sizeof(int),numJoeys);
+  joeysPids			= (pid_t*)calloc(sizeof(pid_t),numJoeys);
+
+  int	numChoices		= (1 &lt;&lt; NUM_TURNS_MUST_SUCCESSFULLY_MAKE);
+  int	joey;
+
+  for  (joey = 0;  joey &lt; numJoeys;  joey++)
+    joeysPaths[joey]	= rand() % numChoices;
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To return the index of the joey process 'joeyPid' in array
+//  	'joeysPids[]'.
+int		getJoeyIndex		(int		joeyPid
+					)
+{
+  //  I.  Application validity check:
+
+  //  II.  Find index of/for 'joeyPid':
+  int	joey;
+
+  //  II.A.  Look for 'joeyPid' in 'joeysPids[]':
+  for  (joey = 0;  joey &lt; numJoeys;  joey++)
+    if  ( (joeysPids[joey] == joeyPid)  ||  (joeysPids[joey] == 0) )
+      break;
+
+  //  II.B.  Complain if run out of array positions:
+  if  (joey &gt;= numJoeys)
+  {
+    fprintf(stderr,
+	    &quot;More joey Pids that number of joeys given on command line!\n&quot;
+	   );
+    exit(EXIT_FAILURE);
+  }
+
+  //  II.C.  Record 'joeyPid' if not currently in 'joeysPids[]':
+  if  (joeysPids[joey] != joeyPid)
+    joeysPids[joey] = joeyPid;
+
+  //  III.  Finished:
+  return(joey);
+}
+
+
+//  PURPOSE:  To return '1' ('true') if the joey 'joeyIndex' made the correct
+//  	turn with turn signal 'turnSignal', or to return '0' ('false')
+//	otherwise.
+int		wasJoeysTurnCorrect		(int	joeyIndex,
+						 int	turnSignal
+						)
+{
+  //  I.  Application validity check:
+
+  //  II.  Return value:
+  int	didJoeyTurnRight	= (turnSignal == RIGHT_TURN_SIGNAL);
+  int	shouldHaveTurnedRight	= (joeysPaths[joeyIndex]		&gt;&gt;
+  				   joeysNumSuccessfulTurns[joeyIndex]
+				  )
+				  &amp; 0x1;
+
+  return(didJoeyTurnRight == shouldHaveTurnedRight);
+}
+
+
+<strong>
+//  YOUR CODE HERE to add either two advanced signal handlers, for
+//    'LEFT_TURN_SIGNAL' and 'RIGHT_TURN_SIGNAL' respectively, or add one that
+//    can handle them both.
+//
+//  If the joey took the wrong move then it:
+//    printf()s a message that tells this.
+//    sends WRONG_TURN_SIGNAL back to the joey process.
+//  else if the joey took the correct move then it:
+//    printf()s a message that tells this.
+//    increments joeysNumSuccessfulTurns[joey]
+//    If joeysNumSuccessfulTurns[joey] is greater than or equal to NUM_TURNS_MUST_SUCCESSFULLY_MAKE then
+//      It printf()s a message that tells that it is out,
+//      Sends SIGINT to the joey process.
+//    else
+//      It printf()s a message telling how many more moves the joey should make
+//      Sends CORRECT_TURN_SIGNAL back to the joey process.
+//
+//  You can get the index of a joey with:
+//  int joeyIndex = getJoeyIndex(<em>joeyProcessId</em>)
+//
+//  You can see if the Joey's turn was correct with:
+//  if  ( wasJoeysTurnCorrect(joeyIndex,<em>receivedSignal</em>) )
+//    goodMove();
+//  else
+//    badMove();
+</strong>
+
+<strong>
+//  YOUR CODE HERE to add a SIGINT handler.  It can be simple.
+//  It printf()s a message and changes the global state so that the
+//  while-loop in main() quits.
+</strong>
+
+
+//  PURPOSE:  To do the program given the 'argc' command line parameters
+//	pointed to by 'argv[]'.  Returns 'EXIT_SUCCESS' to OS when program
+//	naturally finishes.
+int		main			(int		argc,
+					 char*		argv[]
+					)
+{
+  //  I.  Application validity check (done by 'initializeMostGlobals()'):
+
+  //  II.  Sheppard joeys out of mall:
+  //  II.A.  Initialize:
+  initializeMostGlobals(argc,argv);
+  <strong>// YOUR CODE HERE to install your 'LEFT_TURN_SIGNAL' and 'RIGHT_TURN_SIGNAL' handler(s)</strong>
+  <strong>// YOUR CODE HERE to install your 'SIGINT' handler</strong>
+
+  //  II.B.  Sheppard joeys out of mall:
+  while  (shouldStillRun)
+    sleep(1);
+
+  //  II.C.  Clean up afterward:
+  free(joeysPids);
+  free(joeysNumSuccessfulTurns);
+  free(joeysPaths);
+
+  //  III.  Finished:
+  return(EXIT_SUCCESS);
+}</pre>
+  </p>
+
+  <h4>joey.c</h4>
+  <p>
+<pre>
+/*--------------------------------------------------------------------------*
+ *----									----*
+ *----		joey.c							----*
+ *----									----*
+ *----	    This program implements the joey processes, which try to 	----*
+ *----	leave the mall.							----*
+ *----									----*
+ *----	----	----	----	----	----	----	----	----	----*
+ *----									----*
+ *----	Version 1.0		2017 April 17		Joseph Phillips	----*
+ *----									----*
+ *--------------------------------------------------------------------------*/
+
+//
+//		Header inclusion:
+//
+#include	&quot;kangarooHeaders.h&quot;
+
+
+//
+//		Definition of global vars:
+//
+
+//  PURPOSE:  To tell if the mama is still looking for joeys.
+int		shouldStillRun		= 1;
+
+//  PURPOSE:  To tell which joey this joey is.
+int		joeyIndex;
+
+//  PURPOSE:  To tell the process id of the mall process.
+pid_t		mallPid;
+
+//  PURPOSE:  To hold what the next turn will be.
+int		nextTurn;
+
+//  PURPOSE:  To initialize most globals given the 'argc' command line
+//	arguments pointed to by 'argv[]'.  No return value.
+void		initializeMostGlobals	(int		argc,
+					 char*		argv[]
+					)
+{
+  //  I.  Application validity check:
+  if  (argc &lt; MIN_JOEY_CMD_LINE_PARAMS)
+  {
+    fprintf(stderr,&quot;Usage: %s &lt;index&gt; &lt;mallPid&gt; &lt;randSeed&gt;\n&quot;,JOEY_PROG_NAME);
+    exit(EXIT_FAILURE);
+  }
+
+  //  II.  Initialize globals:
+  //  II.A.  Initialize 'joeyIndex':
+  joeyIndex	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[JOEYS_INDEX_CMD_LINE_INDEX]'</strong>
+
+  //  II.B.  Initialize 'mallPid':
+  mallPid	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[JOEYS_MALL_PID_CMD_LINE_INDEX]'</strong>
+
+  //  II.C.  Initialize random number generator:
+  int	seed	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[JOEYS_RAND_SEED_CMD_LINE_INDEX]'</strong>
+
+  srand(seed);
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To handle 'CORRECT_TURN_SIGNAL'.  Ignores 'sig'.  No return value.
+void		correctTurnSignalHandler	(int		sig
+						)
+{
+  //  I.  Application validity check:
+
+  //  II.  
+  nextTurn = ((rand() % 2) == 1) ? LEFT_TURN_SIGNAL : RIGHT_TURN_SIGNAL;
+  printf(&quot;Joey # %d: Yay!  On to the next turn; I'll guess %s.\n&quot;,
+  	  joeyIndex,
+	  (nextTurn == LEFT_TURN_SIGNAL) ? &quot;left&quot; : &quot;right&quot;
+	);
+  fflush(stdout);
+  <strong>// YOUR CODE HERE to send 'nextTurn' to 'mallPid'</strong>
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To handle 'WRONG_TURN_SIGNAL'.  Ignores 'sig'.  No return value.
+void		wrongTurnSignalHandler		(int	      sig
+						)
+{
+  //  I.  Application validity check:
+
+  //  II.  
+  nextTurn = (nextTurn == LEFT_TURN_SIGNAL)
+  	     ? RIGHT_TURN_SIGNAL
+	     : LEFT_TURN_SIGNAL;
+  printf(&quot;Joey # %d: Oops!  Let us try the other direction: %s.\n&quot;,
+  	  joeyIndex,
+	  (nextTurn == LEFT_TURN_SIGNAL) ? &quot;left&quot; : &quot;right&quot;
+	);
+  fflush(stdout);
+  <strong>// YOUR CODE HERE to send 'nextTurn' to 'mallPid'</strong>
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To note that the program may now finish (after receiving
+//	'SIGINT').  Ignores 'sig'.   No return value.
+void		sigIntHandler			(int		sig
+						)
+{
+  printf(&quot;Joey # %d: Yay!  I'm safely in mommy's pouch!\n&quot;,joeyIndex);
+  fflush(stdout);
+  shouldStillRun	= 0;
+}
+
+
+//  PURPOSE:  To install 'correctTurnSignalHandler()' as the signal handler for
+//	'CORRECT_TURN_SIGNAL' and 'wrongTurnSignalHandler()' as the handler for
+//	'WRONG_TURN_SIGNAL'.  No parameters.  No return value.
+void		installTurnHandlers		()
+{
+  //  I.  Application validity check:
+
+  //  II.  Install the handler:
+  //  <strong>YOUR CODE HERE</strong>
+
+  //  III.  Finished:  
+}
+
+
+//  PURPOSE:  To install 'sigIntHandler()' as the handler for 'SIGINT'.  No
+//	parameters.  No return value.
+void		installSigIntHandler		()
+{
+  //  I.  Application validity check:
+
+  //  II.  Install handler:
+  //  II.A.  Set up struct to specify the new action.
+  //  <strong>YOUR CODE HERE</strong>
+
+  //  III.  Finished:
+}
+
+
+int	main			(int		argc,
+				 char*		argv[]
+				)
+{
+  //  I.  Application validity check (done by 'initializeMostGlobals()'):
+
+  //  II.  Try to leave mall:
+  //  II.A.  Initialize globals:
+  initializeMostGlobals(argc,argv);
+  installTurnHandlers();
+  installSigIntHandler();
+
+  //  II.B.  Try to leave mall:
+  nextTurn = ((rand() % 2) == 1) ? LEFT_TURN_SIGNAL : RIGHT_TURN_SIGNAL;
+  printf(&quot;Joey # %d: Which direction?  Decisions, Decisions!  I'll guess %s.\n&quot;,
+  	  joeyIndex,
+	  (nextTurn == LEFT_TURN_SIGNAL) ? &quot;left&quot; : &quot;right&quot;
+	);
+  fflush(stdout);
+  <strong>// YOUR CODE HERE to send 'nextTurn' to 'mallPid'</strong>
+
+  while  (shouldStillRun)
+    sleep(1);
+
+  //  III.  Finished:
+  return(EXIT_SUCCESS);
+}
+</pre>
+  </p>
+
+  <h4>mamaKangaroo.c</h4>
+  <p>
+<pre>
+/*--------------------------------------------------------------------------*
+ *----									----*
+ *----		mamaKangaroo.c						----*
+ *----									----*
+ *----	    This program simulates a mama kangaroo waiting for her	----*
+ *----	joeys using UNIX signaling.					----*
+ *----									----*
+ *----	----	----	----	----	----	----	----	----	----*
+ *----									----*
+ *----	Version 1.0		2017 April 17		Joseph Phillips	----*
+ *----									----*
+ *--------------------------------------------------------------------------*/
+
+//
+//		Header inclusion:
+//
+#include	&quot;kangarooHeaders.h&quot;
+
+
+//
+//		Definition of global vars:
+//
+
+//  PURPOSE:  To hold the random number seed the user requested.
+int		randomNumSeed;
+
+//  PURPOSE:  To hold the number of joeys the user requested to make.
+int		numJoeys		= MIN_NUM_LEGAL_JOEYS - 1;
+
+//  PURPOSE:  To hold the number of joeys that have not yet found their way
+//	back to their mama's pouch.
+int		numActiveJoeys		= 0;
+
+//  PURPOSE:  To hold the process ids of the joey processes.
+pid_t*		joeyPidArray		= NULL;
+
+//  PURPOSE:  To hold the process id of the mall process.
+pid_t		mallPid			= -1;
+
+
+//
+//		Definition of global fncs:
+//
+
+//  PURPOSE:  To initialize 'numJoeys' from the 'argc' commamnd line
+//	parameters give in 'argv[]'.  No return value.
+void	initializeNumJoeys	(int		argc,
+				 char*		argv[]
+				)
+{
+  //  I.  Application validity check:
+
+  //  II.  Initialize 'numJoeys':
+  char		line[LINE_LEN];
+
+  if  (argc &gt; MAMAS_NUM_JOEYS_CMD_LINE_INDEX)
+    numJoeys	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[MAMAS_NUM_JOEYS_CMD_LINE_INDEX]'</strong>
+
+  while  (numJoeys &lt; MIN_NUM_LEGAL_JOEYS)
+  {
+    printf(&quot;Please enter the number of joeys that&quot;
+    	   &quot; get lost in the shopping mall: &quot;
+	  );
+    fgets(line,LINE_LEN,stdin);
+    numJoeys	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'line'</strong>
+  }
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To initialize 'randomNumSeed' from the 'argc' commamnd line
+//	parameters give in 'argv[]'.  No return value.
+void		initializeRandomNumSeed	(int		argc,
+					 char*		argv[]
+					)
+{
+  //  I.  Application validity check:
+
+  //  II.  Initialize 'randomNumSeed':
+  char		line[LINE_LEN];
+
+  if  (argc &gt; MAMAS_RAND_SEED_CMD_LINE_INDEX)
+    randomNumSeed	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'argv[MAMAS_RAND_SEED_CMD_LINE_INDEX]'</strong>
+  else
+  {
+    printf(&quot;Please enter the random number seed: &quot;);
+    fgets(line,LINE_LEN,stdin);
+    randomNumSeed	= <strong>0; // &lt;-- REPLACE with code that gets integer from 'line'</strong>
+  }
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To handle signal 'SIGCHLD'.  'sig' is ignored because it is known
+//	to be 'SIGCHLD'.  No return value.
+void		sigChldHandler		(int		sig
+					)
+{
+  //  I.  Application validity check:
+
+  //  II.  Search for the joey with process id equal to 'childPid':
+  int	status;
+  pid_t	childPid;
+  int	joey;
+
+<strong>
+  //  YOUR CODE HERE that uses a 'while()' loop testing 'waitpid()' to
+  //   get *all* finished children.  Each should be tested against
+  //   'joeyPidArray[joey]' to see if it is that particular joey.
+  //  Decrements 'numActiveJoeys' for each stopped joey.
+</strong>
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To install 'sigChldHandler()' as the SIGCHLD handler, which is
+//	able to distinguish among which of the children has finished.  No
+//	parameters.  No return value.
+void		installSigChldHandler	()
+{
+  //  I.  Application validity check:
+
+  //  II.  Install the handler:
+  //  <strong>YOUR CODE HERE</strong>
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To start the mall process.  No parameters.  No return value.
+void		startMallProcess	()
+{
+  //  I.  Application validity check:
+
+  //  II.  Start the mall process:
+  mallPid	= <strong>0; // &lt;-- REPLACE with code that returns pid of new process</strong>
+
+  if  (mallPid == -1)
+  {
+    fprintf(stderr,&quot;Can't make any new processes! :(\n&quot;);
+    exit(EXIT_FAILURE);
+  }
+
+  if  (mallPid == 0)
+  {
+    char	numJoeysStr[LINE_LEN];
+    char	randNumSeedStr[LINE_LEN];
+
+    snprintf(numJoeysStr,LINE_LEN,&quot;%d&quot;,numJoeys);
+    snprintf(randNumSeedStr,LINE_LEN,&quot;%d&quot;,randomNumSeed);
+    <strong>//  YOUR CODE HERE that runs 'MALL_PROG_NAME' with command line parameters 'numJoeysStr' and 'randNumSeedStr'.</strong>
+    fprintf(stderr,&quot;Could not find the mall! :(\n&quot;);
+    exit(EXIT_FAILURE);
+  }
+
+  //  III.  Finished:
+}
+
+
+//  PURPOSE:  To start the joey processes.  No parameters.  No return value.
+void		startJoeyProcesses	()
+{
+  //  I.  Application validity check:
+
+  //  II.  Start the joey processes:
+  int		joey;
+  joeyPidArray	= (pid_t*)calloc(sizeof(pid_t),numJoeys);
+
+  for  (joey = 0;  joey &lt; numJoeys;  joey++)
+  {
+    joeyPidArray[joey]	= <strong>0; // &lt;-- REPLACE with code that returns pid of new process</strong>
+
+    if  (joeyPidArray[joey] == -1)
+    {
+      fprintf(stderr,&quot;Can't make any new processes! :(\n&quot;);
+      exit(EXIT_FAILURE);
+    }
+
+    if  (joeyPidArray[joey] == 0)
+    {
+      char	indexStr[LINE_LEN];
+      char	mallPidStr[LINE_LEN];
+      char	randNumSeedStr[LINE_LEN];
+
+      snprintf(indexStr,LINE_LEN,&quot;%d&quot;,joey);
+      snprintf(mallPidStr,LINE_LEN,&quot;%d&quot;,mallPid);
+      snprintf(randNumSeedStr,LINE_LEN,&quot;%d&quot;,randomNumSeed + joey);
+      <strong>//  YOUR CODE HERE that runs 'JOEY_PROG_NAME' with command line parameters 'indexStr', 'mallPidStr' and 'randNumSeedStr'.</strong>
+      fprintf(stderr,&quot;Could not find the joey! :(\n&quot;);
+      exit(EXIT_FAILURE);
+    }
+
+    numActiveJoeys++;
+  }
+
+  //  III.  Finished:
+}
+
+
+int	main	(int		argc,
+		 char*		argv[]
+		)
+{
+  //  I.  Application validity check:
+
+  //  II.  Do simulation:
+
+  //  II.A.  Get simulation parameters:
+  initializeNumJoeys(argc,argv);
+  initializeRandomNumSeed(argc,argv);
+
+  //  II.B.  Setup handlers:
+  installSigChldHandler();
+
+  //  II.C.  Initialize processes:
+  startMallProcess();
+  sleep(1);
+  startJoeyProcesses();
+
+  //  II.D.  To do the simulation by waiting until all joeys have returned:
+  while  (numActiveJoeys &gt; 0)
+    sleep(1);
+
+  //  II.E.  Clean up after game:
+  //  II.E.1.  Stop the mall process:
+  <strong>// YOUR CODE HERE to send 'SIGINT' to 'mallPid'</strong>
+
+  //  II.E.2.  Release mem:
+  free(joeyPidArray);
+
+  //  III.  Finished:
+  return(EXIT_SUCCESS);
+}
+</pre>
+  </p>
+ </body>
+</html>

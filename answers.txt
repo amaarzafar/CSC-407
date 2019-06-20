@@ -1,0 +1,91 @@
+3. Timing:Part 1
+for 3 millions numbers generateList() takes 11.57 sec for 2 calls
+for 3 millions numbers generateTree() takes 0.48 sec for 2 calls
+
+4. Timing:Part 2
+for 3 millions numbers generateList() takes 3.13 sec for 2 calls
+for 3 millions numbers generateTree() takes 0.26 sec for 2 calls
+
+5. Human vs. Compiler Optimization
+  A good algorithm and data-structure even without optimization are betterthen
+  a bad algorithm  with optimization  (in our case in 6 times). But the best is 
+  a good algorithm with optimization.
+
+6. Parts of an executable
+(A) objdump -s -j .rodata assign1-0 assign1-0:     file format elf64-x86-64
+
+                                                   Contents of section .rodata:
+                                                   400d38 01000200 00000000 00000000 00000000  ................
+                                                   400d48 25732028 25642d25 64293a20 00256400  %s (%d-%d): .%d.
+                                                   400d58 57686174 20776f75 6c642079 6f75206c  What would you l
+                                                   400d68 696b6520 746f2064 6f3f0a28 31292043  ike to do?.(1) C
+                                                   400d78 6f756e74 20776974 68206120 6c697374  ount with a list
+                                                   400d88 0a283229 20436f75 6e742077 69746820  .(2) Count with 
+                                                   400d98 61207472 65650a28 30292051 7569740a  a tree.(0) Quit.
+                                                   400da8 596f7572 2063686f 69636520 00000000  Your choice ....
+                                                   400db8 506c6561 73652065 6e746572 20746865  Please enter the
+                                                   400dc8 206c6f77 65737420 6e756d62 65722069   lowest number i
+                                                   400dd8 6e207468 65207261 6e676500 00000000  n the range.....
+                                                   400de8 506c6561 73652065 6e746572 20746865  Please enter the
+                                                   400df8 20686967 68657374 206e756d 62657220   highest number 
+                                                   400e08 696e2074 68652072 616e6765 00000000  in the range....
+                                                   400e18 506c6561 73652065 6e746572 20746865  Please enter the
+                                                   400e28 206e756d 62657220 6f66206e 756d6265   number of numbe
+                                                   400e38 72732074 6f20636f 6e736964 65720025  rs to consider.%
+                                                   400e48 643a2025 64207469 6d652873 290a0025  d: %d time(s)..%
+                                                   400e58 643a2025 64207469 6d652873 290a00    d: %d time(s).. 
+
+(B)  objdump -d assign1-0 | grep "<getNextNumber>:$" -A16   000000000040078d <getNextNumber>:
+                                                            40078d:	55                   	push   %rbp
+                                                            40078e:	48 89 e5             	mov    %rsp,%rbp
+                                                            400791:	e8 8a fe ff ff       	callq  400620 <mcount@plt>
+                                                            400796:	e8 b5 fe ff ff       	callq  400650 <rand@plt>
+                                                            40079b:	8b 0d d7 18 20 00    	mov    0x2018d7(%rip),%ecx        # 602078 <high>
+                                                            4007a1:	8b 15 d5 18 20 00    	mov    0x2018d5(%rip),%edx        # 60207c <low>
+                                                            4007a7:	29 d1                	sub    %edx,%ecx
+                                                            4007a9:	89 ca                	mov    %ecx,%edx
+                                                            4007ab:	8d 4a 01             	lea    0x1(%rdx),%ecx
+                                                            4007ae:	99                   	cltd   
+                                                            4007af:	f7 f9                	idiv   %ecx
+                                                            4007b1:	8b 05 c5 18 20 00    	mov    0x2018c5(%rip),%eax        # 60207c <low>
+                                                            4007b7:	01 d0                	add    %edx,%eax
+                                                            4007b9:	5d                   	pop    %rbp
+                                                            4007ba:	c3                   	retq   
+
+(C) The variable high is a global uninitialized variable with an address 0x602078 during program execution 
+  it is sutuated at the .data segment (with begging address 0x602068) and it is allocated during the program l
+  objdump -s -j .data assign1-0
+  assign1-0:     file format elf64-x86-64
+
+                                  Contents of section .data:
+                                   602068 00000000                             ....      
+
+(D) A variable treePtr is a local variable, so it is located at the stack at address -0x8(%rbp)
+objdump -d assign1-0 | grep "<countWithTree>:$" -A20
+0000000000400ab4 <countWithTree>:
+  400ab4:	55                   	push   %rbp
+  400ab5:	48 89 e5             	mov    %rsp,%rbp
+  400ab8:	48 83 ec 20          	sub    $0x20,%rsp
+  400abc:	e8 5f fb ff ff       	callq  400620 <mcount@plt>
+  400ac1:	89 7d ec             	mov    %edi,-0x14(%rbp)
+  400ac4:	8b 45 ec             	mov    -0x14(%rbp),%eax
+  400ac7:	89 c7                	mov    %eax,%edi
+  400ac9:	e8 26 fe ff ff       	callq  4008f4 <generateTree>
+  400ace:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
+  400ad2:	48 8b 45 f8          	mov    -0x8(%rbp),%rax
+  400ad6:	48 89 c7             	mov    %rax,%rdi
+  400ad9:	e8 38 ff ff ff       	callq  400a16 <printTree>
+  400ade:	48 8b 45 f8          	mov    -0x8(%rbp),%rax
+  400ae2:	48 89 c7             	mov    %rax,%rdi
+  400ae5:	e8 84 ff ff ff       	callq  400a6e <freeTree>
+  400aea:	c9                   	leaveq 
+  400aeb:	c3                   	retq   
+
+7. Compiler optimizations
+From freeList():
+  400bf8:	48 89 df             	mov    %rbx,%rdi          ; tmpPtr	= listPtr
+  400bfb:	48 8b 5f 08          	mov    0x8(%rdi),%rbx     ; listPtr	= tmpPtr->nextPtr_
+  400bff:	e8 bc f9 ff ff       	callq  4005c0 <free@plt>  ; free(listPtr)
+  400c04:	48 85 db             	test   %rbx,%rbx          ; listPtr != NULL
+  400c07:	75 ef                	jne    400bf8 <freeList+0x18>
+In this code snip we see using of registers.
